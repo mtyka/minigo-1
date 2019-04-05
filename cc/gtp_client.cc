@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "cc/gtp_player.h"
+#include "cc/gtp_client.h"
 
 #include <algorithm>
 #include <cmath>
@@ -159,6 +159,19 @@ void GtpClient::Ponder() {
 
   // Increment the ponder count by difference new and old reads.
   ponder_read_count_ += player_->root()->N() - n;
+}
+
+GtpClient::Response GtpClient::ReplaySgf(
+    const std::vector<std::unique_ptr<sgf::Node>>& trees) {
+  if (!trees.empty()) {
+    for (const auto& move : trees[0]->ExtractMainLine()) {
+      if (!player_->PlayMove(move.c)) {
+        MG_LOG(ERROR) << "couldn't play move " << move.c;
+        return Response::Error("cannot load file");
+      }
+    }
+  }
+  return Response::Ok();
 }
 
 GtpClient::Response GtpClient::HandleCmd(const std::string& line) {
@@ -379,16 +392,7 @@ GtpClient::Response GtpClient::HandleLoadsgf(CmdArgs args) {
 
   NewGame();
 
-  if (!trees.empty()) {
-    for (const auto& move : trees[0]->ExtractMainLine()) {
-      if (!player_->PlayMove(move.c)) {
-        MG_LOG(ERROR) << "couldn't play move " << move.c;
-        return Response::Error("cannot load file");
-      }
-    }
-  }
-
-  return Response::Ok();
+  return ReplaySgf(trees);
 }
 
 GtpClient::Response GtpClient::HandleName(CmdArgs args) {

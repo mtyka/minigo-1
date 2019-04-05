@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef CC_MINIGUI_PLAYER_H_
-#define CC_MINIGUI_PLAYER_H_
+#ifndef CC_MINIGUI_GTP_CLIENT_H_
+#define CC_MINIGUI_GTP_CLIENT_H_
 
 #include <deque>
 #include <map>
@@ -29,7 +29,7 @@
 #include "absl/types/span.h"
 #include "cc/color.h"
 #include "cc/dual_net/dual_net.h"
-#include "cc/gtp_player.h"
+#include "cc/gtp_client.h"
 #include "cc/thread_safe_queue.h"
 
 namespace minigo {
@@ -75,23 +75,19 @@ class MiniguiGtpClient : public GtpClient {
     std::string comment;
   };
 
-  // If waiting for the opponent to play, consider thinking for a bit.
-  // Returns true if we pondered.
   void Ponder() override;
 
   Response HandleCmd(const std::string& line) override;
   Response HandleGenmove(CmdArgs args) override;
-  Response HandleLoadsgf(CmdArgs args) override;
   Response HandlePlay(CmdArgs args) override;
+  Response ReplaySgf(
+      const std::vector<std::unique_ptr<sgf::Node>>& trees) override;
 
   Response HandleEcho(CmdArgs args);
   Response HandlePruneNodes(CmdArgs args);
   Response HandleReportSearchInterval(CmdArgs args);
   Response HandleSelectPosition(CmdArgs args);
   Response HandleWinrateEvals(CmdArgs args);
-
-  // Shared implementation used by HandleLoadsgf and HandlePlaysgf.
-  Response ProcessSgf(const std::vector<std::unique_ptr<sgf::Node>>& trees);
 
   // Writes the search data for the tree search being performed at the given
   // root to stderr. If leaf is non-null, the search path from root to leaf
@@ -137,4 +133,4 @@ class MiniguiGtpClient : public GtpClient {
 
 }  // namespace minigo
 
-#endif  // CC_MINIGUI_PLAYER_H_
+#endif  // CC_MINIGUI_GTP_CLIENT_H_
