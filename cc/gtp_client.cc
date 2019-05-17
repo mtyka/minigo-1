@@ -30,8 +30,23 @@
 
 namespace minigo {
 
-GtpClient::GtpClient(std::unique_ptr<MctsPlayer> player, const Options& options)
-    : player_(std::move(player)), options_(options) {
+GtpClient::GtpClient(std::unique_ptr<DualNetFactory> model_factory,
+                     std::shared_ptr<InferenceCache> inference_cache,
+                     const std::string& model_path,
+                     const Game::Options& game_options,
+                     const MctsPlayer::Options& player_options,
+                     const GtpClient::Options& client_options)
+    : model_factory_(std::move(model_factory)),
+      inference_cache_(inference_cache),
+      options_(client_options) {
+  auto model = model_factory_->NewDualNet(model_path);
+  game_ = absl::make_unique<Game>(model->name(), model->name(), game_options);
+
+  // Create the main player. Its model doesn't run through the batcher used for
+  // background inferences.
+  player_ = absl::make_unique<MctsPlayer>(std::move(model), inference_cache,
+                                          game_.get(), player_options);
+
   if (options_.ponder_limit > 0) {
     ponder_type_ = PonderType::kReadLimited;
   }
@@ -50,7 +65,6 @@ GtpClient::GtpClient(std::unique_ptr<MctsPlayer> player, const Options& options)
   RegisterCmd("readouts", &GtpClient::HandleReadouts);
   RegisterCmd("showboard", &GtpClient::HandleShowboard);
   RegisterCmd("undo", &GtpClient::HandleUndo);
-  NewGame();
 }
 
 GtpClient::~GtpClient() = default;
@@ -82,6 +96,8 @@ void GtpClient::Run() {
   // abort the blocking call std::getline read (apart from the user hitting
   // ctrl-C). The OS will clean the thread up when the process exits.
   stdin_thread.detach();
+
+  NewGame();
 
   while (running) {
     std::string line;
@@ -293,15 +309,14 @@ GtpClient::Response GtpClient::HandleFinalScore(CmdArgs args) {
   if (!response.ok) {
     return response;
   }
-  if (!player_->game()->game_over()) {
+  if (!game_->game_over()) {
     // Game isn't over yet, calculate the current score using Tromp-Taylor
     // scoring.
-    return Response::Ok(
-        Game::FormatScore(player_->root()->position.CalculateScore(
-            player_->game()->options().komi)));
+    return Response::Ok(Game::FormatScore(
+        player_->root()->position.CalculateScore(game_->options().komi)));
   } else {
     // Game is over, we have the result available.
-    return Response::Ok(player_->game()->result_string());
+    return Response::Ok(game_->result_string());
   }
 }
 
@@ -351,7 +366,7 @@ GtpClient::Response GtpClient::HandleKomi(CmdArgs args) {
   }
 
   double x;
-  if (!absl::SimpleAtod(args[0], &x) || x != player_->game()->options().komi) {
+  if (!absl::SimpleAtod(args[0], &x) || x != game_->options().komi) {
     return Response::Error("unacceptable komi");
   }
 

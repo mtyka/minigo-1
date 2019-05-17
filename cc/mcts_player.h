@@ -24,7 +24,6 @@
 
 #include "absl/memory/memory.h"
 #include "absl/time/time.h"
-#include "absl/types/span.h"
 #include "cc/algorithm.h"
 #include "cc/constants.h"
 #include "cc/dual_net/dual_net.h"
@@ -80,9 +79,6 @@ class MctsPlayer {
     // of time spent thinking as the game progresses.
     float decay_factor = 0.98;
 
-    // If true, print debug info to stderr.
-    bool verbose = true;
-
     // If true, children of the current root node are pruned when a move is
     // played. Under normal play, only the descendents of the move played ever
     // have a chance of being visited again during tree search. However, when
@@ -99,28 +95,14 @@ class MctsPlayer {
     friend std::ostream& operator<<(std::ostream& ios, const Options& options);
   };
 
-  struct History {
-    std::array<float, kNumMoves> search_pi;
-    Coord c = Coord::kPass;
-    std::string comment;
-    const MctsNode* node = nullptr;
-  };
-
-  // Path in the game tree from leaf to root.
-  struct TreePath {
-    TreePath(MctsNode* root, MctsNode* leaf) : root(root), leaf(leaf) {}
-    MctsNode* root;
-    MctsNode* leaf;
-  };
-
   // Callback invoked on each batch of leaves expanded during tree search.
-  using TreeSearchCallback = std::function<void(absl::Span<TreePath>)>;
+  using TreeSearchCallback = std::function<void(const std::vector<MctsNode*>&)>;
 
   // If position is non-null, the player will be initilized with that board
   // state. Otherwise, the player is initialized with an empty board with black
   // to play.
   MctsPlayer(std::unique_ptr<DualNet> network,
-             std::unique_ptr<InferenceCache> inference_cache, Game* game,
+             std::shared_ptr<InferenceCache> inference_cache, Game* game,
              const Options& options);
 
   virtual ~MctsPlayer();
@@ -154,28 +136,23 @@ class MctsPlayer {
   MctsNode* root() { return root_; }
   const MctsNode* root() const { return root_; }
 
-  Game* game() { return game_; }
-
   const Options& options() const { return options_; }
   const std::string& name() const { return network_->name(); }
   DualNet* network() { return network_.get(); }
+  uint64_t seed() const { return rnd_.seed(); }
 
   void SetOptions(const Options& options) { options_ = options; }
 
-  // TODO(tommadams): remove this once the inference cache is integrated and we
-  // no longer rely on tree reuse for Minigui.
-  // Resets the root_ node back to the game_root_, clearing the game history but
-  // preserving the game tree.
-  // This is used to rewind the game during review.
-  void ResetRoot();
-
   void TreeSearch();
 
+  // TODO(tommadams): Make SelectLeaves and ProcessLeaves private, or remove
+  // them entirely.
   void SelectLeaves(MctsNode* root, int num_leaves,
-                    std::vector<MctsPlayer::TreePath>* paths);
+                    std::vector<MctsNode*>* leaves);
 
   // Run inference for the given leaf nodes & incorportate the inference output.
-  void ProcessLeaves(absl::Span<TreePath> paths, bool random_symmetry);
+  void ProcessLeaves(const std::vector<MctsNode*>& leaves,
+                     bool random_symmetry);
 
   // Protected methods that get exposed for testing.
  protected:
@@ -231,10 +208,10 @@ class MctsPlayer {
 
   std::vector<InferenceInfo> inferences_;
 
-  std::unique_ptr<InferenceCache> inference_cache_;
+  std::shared_ptr<InferenceCache> inference_cache_;
 
   // Vectors reused when running TreeSearch.
-  std::vector<TreePath> tree_search_paths_;
+  std::vector<MctsNode*> tree_search_leaves_;
   std::vector<DualNet::BoardFeatures> features_;
   std::vector<DualNet::Output> outputs_;
   std::vector<symmetry::Symmetry> symmetries_used_;
